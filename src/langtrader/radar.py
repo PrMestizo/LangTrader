@@ -46,14 +46,19 @@ async def procesar_noticia(noticia):
             
             # --- CONEXIÓN CON TU ARCHIVO graph.py ---
             estado_inicial = {
-                "user_input": f"Analizar urgencia: {titular} para el ticker {ticker}",
-                "llm_output": "" 
+                "ticker": ticker,
+                "noticia": titular,
+                "sentimiento_radar": sentimiento,
+                "analisis_tecnico": "",
+                "analisis_fundamental": "",
+                "analisis_sentimiento": "",
+                "decision_final": ""
             }
             
             # EJECUTAMOS TU GRAFO
             resultado = workflow.invoke(estado_inicial)
             
-            print(f"\n🤖 Veredicto Final del Grafo: {resultado['llm_output']}")
+            print(f"\n🤖 Veredicto Final del Grafo: {resultado['decision_final']}")
         else:
             print("💤 Falsa alarma. Los agentes siguen durmiendo.")
 
