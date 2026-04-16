@@ -1,9 +1,16 @@
 import asyncio
-import json
+import os
+from dotenv import load_dotenv
 from transformers import pipeline
+from alpaca.data.live import NewsDataStream
 
 # IMPORTAMOS TU GRAFO DE AGENTES
 from langtrader.my_graph.graph import workflow
+
+# Cargar API Keys del archivo .env
+load_dotenv()
+ALPACA_API_KEY = os.getenv("ALPACA_API_KEY")
+ALPACA_SECRET_KEY = os.getenv("ALPACA_SECRET_KEY")
 
 PALABRAS_CLAVE = ["bancarrota", "adquisicion", "fraude", "dimision", "acuerdo"]
 
@@ -11,25 +18,24 @@ print("Cargando modelo FinBERT (esto tarda unos segundos)...")
 nlp_finanzas = pipeline("sentiment-analysis", model="ProsusAI/finbert")
 print("✅ FinBERT cargado.")
 
-async def escuchar_noticias():
-    # En un entorno real, aquí iría la URL de tu proveedor (ej. Alpaca)
-    uri = "wss://echo.websocket.events" # Usamos una genérica para que no falle al probar
-    
-    print("📡 Radar Rápido encendido. Escuchando mercado en tiempo real...")
-    
-    # SIMULAMOS LA LLEGADA DE UNA NOTICIA
-    await asyncio.sleep(2)
-    mensaje_json = '{"ticker": "DIS", "headline": "El CEO de Disney presenta su dimision tras acusaciones de fraude"}'
-    datos_noticia = json.loads(mensaje_json)
-    titular = datos_noticia["headline"].lower()
-    ticker = datos_noticia["ticker"]
+
+async def procesar_noticia(noticia):
+    """Callback que se ejecuta cada vez que Alpaca recibe una noticia"""
+    # Alpaca envía un objeto de noticia. Extraemos titular y el primer símbolo.
+    titular = noticia.headline
+    simbolos = noticia.symbols
+    ticker = simbolos[0] if simbolos else "Desconocido"
+    titular_lower = titular.lower()
+
+    # Mostrar la noticia en crudo para confirmar que el WebSockets funciona
+    print(f"📰 [{ticker}] {titular}")
 
     # FILTRO A: Palabras clave
-    if any(palabra in titular for palabra in PALABRAS_CLAVE):
+    if any(palabra in titular_lower for palabra in PALABRAS_CLAVE):
         print(f"\n🚨 ALERTA: Palabra clave detectada en {ticker}!")
         
         # FILTRO B: Triaje con IA ligera
-        resultado_nlp = nlp_finanzas(datos_noticia["headline"])[0]
+        resultado_nlp = nlp_finanzas(titular)[0]
         sentimiento = resultado_nlp["label"]
         confianza = resultado_nlp["score"]
         
@@ -38,10 +44,9 @@ async def escuchar_noticias():
         if sentimiento in ["negative", "positive"] and confianza > 0.85:
             print(f"🔥 Noticia crítica. Despertando al Comité de LangGraph para {ticker}...\n")
             
-            # --- AQUÍ CONECTAMOS CON TU ARCHIVO graph.py ---
-            # Preparamos los datos iniciales que recibirá tu grafo
+            # --- CONEXIÓN CON TU ARCHIVO graph.py ---
             estado_inicial = {
-                "user_input": f"Analizar urgencia: {datos_noticia['headline']} para el ticker {ticker}",
+                "user_input": f"Analizar urgencia: {titular} para el ticker {ticker}",
                 "llm_output": "" 
             }
             
@@ -52,5 +57,18 @@ async def escuchar_noticias():
         else:
             print("💤 Falsa alarma. Los agentes siguen durmiendo.")
 
+
+def escuchar_noticias():
+    print("📡 Conectando a Alpaca News Stream...")
+    # Inicializamos el cliente de WebSockets
+    news_stream = NewsDataStream(ALPACA_API_KEY, ALPACA_SECRET_KEY)
+    
+    # Suscribirse a todas las noticias ("*")
+    news_stream.subscribe_news(procesar_noticia, "*")
+    
+    print("🚀 Radar Rápido encendido. Escuchando mercado en tiempo real...")
+    # Arrancamos el loop bloqueante de Alpaca (mantiene la conexión abierta)
+    news_stream.run()
+
 if __name__ == "__main__":
-    asyncio.run(escuchar_noticias())
+    escuchar_noticias()
