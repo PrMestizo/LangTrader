@@ -3,7 +3,7 @@ import json
 from transformers import pipeline
 
 # IMPORTAMOS TU GRAFO DE AGENTES
-from my_graph.graph import workflow 
+from langtrader.my_graph.graph import workflow
 
 PALABRAS_CLAVE = ["bancarrota", "adquisicion", "fraude", "dimision", "acuerdo"]
 
