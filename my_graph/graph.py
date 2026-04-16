@@ -8,9 +8,12 @@ from langgraph.graph import StateGraph, START, END
 # ============================================================
 
 class MyState(TypedDict):
-    """Estado compartido entre todos los nodos del grafo."""
-    user_input: str
-    llm_output: str
+    ticker: str            # Ej: "DIS"
+    noticia: str           # Ej: "El CEO dimite..."
+    sentimiento_radar: str # Ej: "negative"
+    analisis_tecnico: str
+    analisis_fundamental: str
+    decision_final: str
 
 
 # ============================================================
