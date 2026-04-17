@@ -7,7 +7,7 @@ from alpaca.data.requests import StockBarsRequest
 from alpaca.data.timeframe import TimeFrame
 from alpaca.data.enums import DataFeed
 from alpaca.trading.client import TradingClient
-from alpaca.trading.requests import MarketOrderRequest
+from alpaca.trading.requests import MarketOrderRequest, TakeProfitRequest, StopLossRequest
 from alpaca.trading.enums import OrderSide, TimeInForce, OrderClass
 from dotenv import load_dotenv
 
@@ -27,8 +27,8 @@ def ejecutar_orden_mercado(
     take_profit: float = 0.0
 ) -> str:
     """Ejecuta una orden de compra (BUY) o venta (SELL) a precio de mercado en Alpaca.
-    Si se proporcionan stop_loss y take_profit (> 0), envía una orden bracket (OTO)
-    que incluye automáticamente las órdenes de salida vinculadas."""
+    Si se proporcionan stop_loss y take_profit (> 0), envía una Bracket Order (OTO)
+    con TakeProfitRequest y StopLossRequest vinculados automáticamente."""
     try:
         side = OrderSide.BUY if accion.upper() == "BUY" else OrderSide.SELL
 
@@ -40,8 +40,8 @@ def ejecutar_orden_mercado(
                 side=side,
                 time_in_force=TimeInForce.GTC,
                 order_class=OrderClass.BRACKET,
-                stop_loss={"stop_price": round(stop_loss, 2)},
-                take_profit={"limit_price": round(take_profit, 2)}
+                stop_loss=StopLossRequest(stop_price=round(stop_loss, 2)),
+                take_profit=TakeProfitRequest(limit_price=round(take_profit, 2))
             )
         else:
             # Orden simple sin bracket
