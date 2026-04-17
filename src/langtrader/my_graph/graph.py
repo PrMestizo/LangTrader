@@ -1,10 +1,10 @@
 import os
 from typing import TypedDict, Optional
 from langchain_core.runnables import RunnableConfig
-# langchain_core.tools import tool - removido
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 from langgraph.graph import StateGraph, START, END
+from pydantic import BaseModel, Field
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -19,8 +19,58 @@ class MyState(TypedDict):
     analisis_tecnico: str
     analisis_fundamental: str
     analisis_sentimiento: str
-    decision_final: str
+    # --- Campos estructurados de la decisión ---
+    decision_accion: str                # BUY, SELL, HOLD o REVISAR
+    precio_stop_loss: float
+    precio_take_profit: float
+    riesgo_sugerido_porcentaje: float
+    justificacion: str
     accion_ejecutada: str
+
+# ============================================================
+# 1.5. Modelo Pydantic para Salida Estructurada
+# ============================================================
+class OrdenDeTrading(BaseModel):
+    """Orden de trading estructurada generada por el gestor de riesgos."""
+    decision_accion: str = Field(
+        description=(
+            "La acción a tomar. DEBE ser estrictamente una de estas 4 opciones: "
+            "'BUY' (comprar), 'SELL' (vender), 'HOLD' (mantener sin operar), "
+            "o 'REVISAR' (si los reportes tienen fallos, contradicciones o falta "
+            "información y los analistas deben volver a buscar)."
+        )
+    )
+    precio_stop_loss: float = Field(
+        description=(
+            "Precio de Stop-Loss. Es el nivel de precio donde se cierra la posición "
+            "para limitar pérdidas. Debe calcularse a partir del mínimo reciente "
+            "reportado por el Analista Técnico (ligeramente por debajo para BUY, "
+            "ligeramente por encima del máximo para SELL). "
+            "Debe ser 0.0 si la acción es 'HOLD' o 'REVISAR'."
+        )
+    )
+    precio_take_profit: float = Field(
+        description=(
+            "Precio de Take-Profit. Es el nivel de precio donde se cierra la posición "
+            "para asegurar beneficios. DEBE respetar un ratio Riesgo/Beneficio mínimo "
+            "de 1:2 respecto al Stop-Loss. Por ejemplo, si el riesgo (distancia al SL) "
+            "es $2, el beneficio (distancia al TP) debe ser al menos $4. "
+            "Debe ser 0.0 si la acción es 'HOLD' o 'REVISAR'."
+        )
+    )
+    riesgo_sugerido_porcentaje: float = Field(
+        description=(
+            "Porcentaje del capital total de la cuenta que se sugiere arriesgar en esta "
+            "operación. Debe estar entre 1.0 y 2.0 para operaciones de BUY o SELL. "
+            "Debe ser 0.0 si la acción es 'HOLD' o 'REVISAR'."
+        )
+    )
+    justificacion: str = Field(
+        description=(
+            "Breve justificación de la decisión, explicando la lógica detrás de la "
+            "acción elegida y los niveles de precio seleccionados."
+        )
+    )
 
 # ============================================================
 # 2. Las Herramientas (Los "ojos" y "manos" de los agentes)
@@ -72,36 +122,66 @@ def analista_fundamental(state: MyState, config: Optional[RunnableConfig] = None
 def moderador(state: MyState, config: Optional[RunnableConfig] = None):
     print(f"⚖️ Moderador sintetizando datos para {state['ticker']}...")
     prompt = ChatPromptTemplate.from_messages([
-        ("system", "Eres el gestor de riesgos. Lee los análisis de tu equipo. Decide: BUY, SELL, HOLD, o REVISAR (si crees que falta información, hay contradicciones o fallos en las peticiones y deben volver a buscar). Tu respuesta DEBE empezar explícitamente con una de esas 4 palabras clave, seguido de una breve justificación."),
-        ("human", "Noticia original: {noticia} (Sentimiento Radar: {sentimiento_radar})\n\n-- REPORTES --\nTécnico: {analisis_tecnico}\nFundamental: {analisis_fundamental}\nSentimiento Social: {analisis_sentimiento}")
+        ("system", """Eres un gestor de riesgos cuantitativo de élite. Tu trabajo es sintetizar los reportes de tu equipo de analistas y tomar una decisión de trading estructurada.
+
+INSTRUCCIONES CRÍTICAS:
+1. Extrae el PRECIO ACTUAL y el MÍNIMO RECIENTE del reporte del Analista Técnico.
+2. Si decides BUY:
+   - Coloca el Stop-Loss ligeramente por debajo del mínimo reciente (ej. mínimo - 0.5%).
+   - Calcula la distancia de riesgo: precio_actual - stop_loss.
+   - El Take-Profit DEBE estar a una distancia mínima de 2x esa distancia por encima del precio actual (ratio R/B mínimo 1:2).
+3. Si decides SELL:
+   - Coloca el Stop-Loss ligeramente por encima del máximo reciente (ej. máximo + 0.5%).
+   - Calcula la distancia de riesgo: stop_loss - precio_actual.
+   - El Take-Profit DEBE estar a una distancia mínima de 2x esa distancia por debajo del precio actual.
+4. Si decides HOLD o REVISAR: todos los precios y riesgo deben ser 0.0.
+5. El riesgo sugerido debe estar entre 1.0% y 2.0% del capital para BUY/SELL.
+6. Usa REVISAR solo si los reportes tienen errores, fallos en las peticiones, contradicciones graves o falta información esencial."""),
+        ("human", """Noticia original: {noticia} (Sentimiento Radar: {sentimiento_radar})
+
+-- REPORTES DEL EQUIPO --
+Técnico: {analisis_tecnico}
+Fundamental: {analisis_fundamental}
+Sentimiento Social: {analisis_sentimiento}""")
     ])
-    agente = prompt | llm
-    respuesta = agente.invoke(state)
-    return {"decision_final": respuesta.content}
+    agente_estructurado = prompt | llm.with_structured_output(OrdenDeTrading)
+    orden = agente_estructurado.invoke(state)
+
+    print(f"   -> Decisión: {orden.decision_accion} | SL: {orden.precio_stop_loss} | TP: {orden.precio_take_profit} | Riesgo: {orden.riesgo_sugerido_porcentaje}%")
+    print(f"   -> Justificación: {orden.justificacion}")
+
+    return {
+        "decision_accion": orden.decision_accion,
+        "precio_stop_loss": orden.precio_stop_loss,
+        "precio_take_profit": orden.precio_take_profit,
+        "riesgo_sugerido_porcentaje": orden.riesgo_sugerido_porcentaje,
+        "justificacion": orden.justificacion,
+    }
 
 def ejecutor(state: MyState, config: Optional[RunnableConfig] = None):
     print(f"🚀 Ejecutor procesando orden para {state['ticker']}...")
-    decision = state['decision_final'].upper()
+    accion = state["decision_accion"].upper()
     
-    if "BUY" in decision:
+    if accion == "BUY":
         print(f"🛒 Ejecutando orden de COMPRA para {state['ticker']}...")
+        print(f"   SL: {state['precio_stop_loss']} | TP: {state['precio_take_profit']} | Riesgo: {state['riesgo_sugerido_porcentaje']}%")
         resultado = ejecutar_orden_mercado.invoke({"ticker": state["ticker"], "accion": "BUY", "cantidad": 1})
-    elif "SELL" in decision:
+    elif accion == "SELL":
         print(f"💸 Ejecutando orden de VENTA para {state['ticker']}...")
+        print(f"   SL: {state['precio_stop_loss']} | TP: {state['precio_take_profit']} | Riesgo: {state['riesgo_sugerido_porcentaje']}%")
         resultado = ejecutar_orden_mercado.invoke({"ticker": state["ticker"], "accion": "SELL", "cantidad": 1})
     else:
-        print(f"⏸️ Ninguna orden ejecutada. (Decisión: HOLD)")
-        resultado = "Mantenido (HOLD). Ninguna orden ejecutada hacia la API."
+        print(f"⏸️ Ninguna orden ejecutada. (Decisión: {accion})")
+        resultado = f"Mantenido ({accion}). Ninguna orden ejecutada hacia la API."
         
     return {"accion_ejecutada": resultado}
 
 # ============================================================
 # 4. Conditional Edges
 # ============================================================
-
 def router_moderador(state: MyState):
-    decision = state.get("decision_final", "").upper()
-    if "REVISAR" in decision or "CORREGIR" in decision:
+    accion = state.get("decision_accion", "").upper()
+    if accion == "REVISAR":
         print("🔄 El Moderador ha solicitado REVISIÓN. Volviendo a los Analistas...")
         return ["Analista_Tecnico", "Analista_Fundamental", "Analista_Sentimiento"]
     return ["Ejecutor"]
