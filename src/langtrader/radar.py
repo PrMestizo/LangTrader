@@ -56,7 +56,8 @@ async def procesar_noticia(noticia):
                 "precio_stop_loss": 0.0,
                 "precio_take_profit": 0.0,
                 "justificacion": "",
-                "accion_ejecutada": ""
+                "accion_ejecutada": "",
+                "intentos_revision": 0
             }
             
             # EJECUTAMOS TU GRAFO

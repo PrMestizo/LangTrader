@@ -25,6 +25,7 @@ class MyState(TypedDict):
     precio_take_profit: float
     justificacion: str
     accion_ejecutada: str
+    intentos_revision: int
 
 # ============================================================
 # 1.5. Modelo Pydantic para Salida Estructurada
@@ -111,8 +112,11 @@ def analista_fundamental(state: MyState, config: Optional[RunnableConfig] = None
     respuesta = agente.invoke(state)
     return {"analisis_fundamental": respuesta.content}
 
+MAX_INTENTOS_REVISION = 2
+
 def moderador(state: MyState, config: Optional[RunnableConfig] = None):
-    print(f"⚖️ Moderador sintetizando datos para {state['ticker']}...")
+    intentos = state.get('intentos_revision', 0) + 1
+    print(f"⚖️ Moderador sintetizando datos para {state['ticker']}... (intento {intentos})")
     prompt = ChatPromptTemplate.from_messages([
         ("system", """Eres un gestor de riesgos cuantitativo de élite. Tu trabajo es sintetizar los reportes de tu equipo de analistas y tomar una decisión de trading estructurada.
 
@@ -147,6 +151,7 @@ Sentimiento Social: {analisis_sentimiento}""")
         "precio_stop_loss": orden.precio_stop_loss,
         "precio_take_profit": orden.precio_take_profit,
         "justificacion": orden.justificacion,
+        "intentos_revision": intentos,
     }
 
 def ejecutor(state: MyState, config: Optional[RunnableConfig] = None):
@@ -184,8 +189,17 @@ def ejecutor(state: MyState, config: Optional[RunnableConfig] = None):
 # ============================================================
 def router_moderador(state: MyState):
     accion = state.get("decision_accion", "").upper()
+    intentos = state.get("intentos_revision", 0)
+
     if accion == "REVISAR":
-        print("🔄 El Moderador ha solicitado REVISIÓN. Volviendo a los Analistas...")
+        if intentos >= MAX_INTENTOS_REVISION:
+            print(f"🛑 Circuit Breaker: {intentos} revisiones alcanzadas. Forzando HOLD para proteger capital.")
+            state["decision_accion"] = "HOLD"
+            state["precio_stop_loss"] = 0.0
+            state["precio_take_profit"] = 0.0
+            state["justificacion"] = f"HOLD forzado por circuit breaker tras {intentos} revisiones sin resolución."
+            return ["Ejecutor"]
+        print(f"🔄 El Moderador ha solicitado REVISIÓN ({intentos}/{MAX_INTENTOS_REVISION}). Volviendo a los Analistas...")
         return ["Analista_Tecnico", "Analista_Fundamental", "Analista_Sentimiento"]
     return ["Ejecutor"]
 
