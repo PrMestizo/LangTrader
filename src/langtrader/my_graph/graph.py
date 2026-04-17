@@ -1,7 +1,7 @@
 import os
 from typing import TypedDict, Optional
 from langchain_core.runnables import RunnableConfig
-from langchain_core.tools import tool
+# langchain_core.tools import tool - removido
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 from langgraph.graph import StateGraph, START, END
@@ -24,23 +24,11 @@ class MyState(TypedDict):
 # ============================================================
 # 2. Las Herramientas (Los "ojos" y "manos" de los agentes)
 # ============================================================
-@tool
-def buscar_sentimiento_social(ticker: str) -> str:
-    """Busca en Twitter (X) y Reddit la reacción del público minorista en los últimos 5 minutos."""
-    # Aquí iría tu código real conectando a la API de Reddit o X.
-    return f"Simulación: Mucho pánico en Reddit sobre {ticker}. Retail está vendiendo masivamente."
-
-@tool
-def analizar_grafica_1m(ticker: str) -> str:
-    """Obtiene velas de 1 minuto y volumen en tiempo real para ver si las instituciones compran o venden."""
-    # Aquí te conectarías a la API de Alpaca o Yahoo Finance
-    return f"Simulación: Volumen institucional inusualmente alto en {ticker}. Están absorbiendo las ventas (comprando barato)."
-
-@tool
-def evaluar_dependencia_fundamental(ticker: str, contexto: str) -> str:
-    """Revisa los balances para ver cuánto depende la empresa de la noticia actual."""
-    # Aquí te conectarías a Financial Modeling Prep o similar
-    return f"Simulación: El producto mencionado en la noticia representa solo el 5% de los ingresos de {ticker}."
+from langtrader.my_graph.tools import (
+    buscar_sentimiento_social,
+    analizar_grafica_1m,
+    evaluar_dependencia_fundamental
+)
 
 # Inicializamos el LLM (Asegúrate de tener OPENAI_API_KEY en tu .env)
 llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
