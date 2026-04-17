@@ -89,6 +89,11 @@ def ejecutar_orden_mercado(
 
         side = OrderSide.BUY if accion.upper() == "BUY" else OrderSide.SELL
 
+        # --- Verificación de Activo Shortable (si es SELL) ---
+        activo = trading_client.get_asset(ticker)
+        if side == OrderSide.SELL and not activo.shortable:
+            return f"Operación cancelada: El activo {ticker} no permite posiciones en corto (shortable) en Alpaca."
+
         # --- Obtención de Precio y Position Sizing ---
         if stop_loss > 0:
             cantidad, precio_actual, equity = _calcular_position_size(ticker, stop_loss, riesgo_porcentaje)
