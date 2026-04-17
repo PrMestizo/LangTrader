@@ -8,8 +8,8 @@ from alpaca.data.requests import StockBarsRequest, StockLatestQuoteRequest
 from alpaca.data.timeframe import TimeFrame
 from alpaca.data.enums import DataFeed
 from alpaca.trading.client import TradingClient
-from alpaca.trading.requests import LimitOrderRequest, MarketOrderRequest, TakeProfitRequest, StopLossRequest
-from alpaca.trading.enums import OrderSide, TimeInForce, OrderClass
+from alpaca.trading.requests import GetOrdersRequest, LimitOrderRequest, MarketOrderRequest, TakeProfitRequest, StopLossRequest
+from alpaca.trading.enums import OrderSide, TimeInForce, OrderClass, QueryOrderStatus
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -72,6 +72,20 @@ def ejecutar_orden_mercado(
         reloj = trading_client.get_clock()
         if not reloj.is_open:
             return "Operación cancelada: El mercado está cerrado. Se evitan órdenes para prevenir gaps de apertura."
+
+        # --- Prevención de Sobreexposición ---
+        try:
+            # Intenta obtener una posición abierta para el ticker
+            trading_client.get_open_position(ticker)
+            existe_posicion = True
+        except Exception:
+            # Si lanza excepción (generalmente APIError 40440000), no existe posición abierta
+            existe_posicion = False
+            
+        ordenes_pendientes = trading_client.get_orders(filter=GetOrdersRequest(status=QueryOrderStatus.OPEN, symbols=[ticker]))
+        
+        if existe_posicion or len(ordenes_pendientes) > 0:
+            return f"Operación ignorada: Ya existe una posición abierta u orden pendiente para {ticker}. Previniendo sobreexposición."
 
         side = OrderSide.BUY if accion.upper() == "BUY" else OrderSide.SELL
 
