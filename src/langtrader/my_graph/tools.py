@@ -8,7 +8,7 @@ from alpaca.data.requests import StockBarsRequest, StockLatestQuoteRequest
 from alpaca.data.timeframe import TimeFrame
 from alpaca.data.enums import DataFeed
 from alpaca.trading.client import TradingClient
-from alpaca.trading.requests import MarketOrderRequest, TakeProfitRequest, StopLossRequest
+from alpaca.trading.requests import LimitOrderRequest, MarketOrderRequest, TakeProfitRequest, StopLossRequest
 from alpaca.trading.enums import OrderSide, TimeInForce, OrderClass
 from dotenv import load_dotenv
 
@@ -70,19 +70,27 @@ def ejecutar_orden_mercado(
     try:
         side = OrderSide.BUY if accion.upper() == "BUY" else OrderSide.SELL
 
-        # --- Position Sizing dinámico ---
+        # --- Obtención de Precio y Position Sizing ---
         if stop_loss > 0:
             cantidad, precio_actual, equity = _calcular_position_size(ticker, stop_loss, riesgo_porcentaje)
             print(f"   📊 Position Sizing: Equity=${equity:,.2f} | Precio={precio_actual:.2f} | "
                   f"Riesgo/acc=${abs(precio_actual - stop_loss):.2f} | Cantidad={cantidad} acc.")
         else:
             cantidad = 1  # Fallback si no hay SL
-            print(f"   ⚠️ Sin Stop-Loss definido. Usando cantidad fija: {cantidad}")
+            precio_actual = _obtener_precio_actual(ticker)
+            print(f"   ⚠️ Sin Stop-Loss definido. Usando cantidad fija: {cantidad} | Precio={precio_actual:.2f}")
 
-        # Si tenemos SL y TP válidos, creamos una orden bracket (OTO)
+        # --- Cálculo del Limit Price (Protección contra Slippage del 0.5%) ---
+        if side == OrderSide.BUY:
+            limit_price = round(precio_actual * 1.005, 2)
+        else:
+            limit_price = round(precio_actual * 0.995, 2)
+
+        # Si tenemos SL y TP válidos, creamos una orden bracket (OTO) con un Límite de entrada
         if stop_loss > 0 and take_profit > 0:
-            market_order_data = MarketOrderRequest(
+            order_data = LimitOrderRequest(
                 symbol=ticker,
+                limit_price=limit_price,
                 qty=cantidad,
                 side=side,
                 time_in_force=TimeInForce.GTC,
@@ -91,15 +99,16 @@ def ejecutar_orden_mercado(
                 take_profit=TakeProfitRequest(limit_price=round(take_profit, 2))
             )
         else:
-            # Orden simple sin bracket
-            market_order_data = MarketOrderRequest(
+            # Orden límite simple sin bracket
+            order_data = LimitOrderRequest(
                 symbol=ticker,
+                limit_price=limit_price,
                 qty=cantidad,
                 side=side,
                 time_in_force=TimeInForce.GTC
             )
         
-        orden = trading_client.submit_order(order_data=market_order_data)
+        orden = trading_client.submit_order(order_data=order_data)
 
         msg = f"Orden {accion} ejecutada para {cantidad} acc. de {ticker}. Status: {orden.status}"
         if stop_loss > 0 and take_profit > 0:
