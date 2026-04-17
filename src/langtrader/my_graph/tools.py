@@ -68,6 +68,11 @@ def ejecutar_orden_mercado(
     porcentaje del equity de la cuenta basándose en la distancia al Stop-Loss.
     Si stop_loss y take_profit > 0, envía una Bracket Order (OTO)."""
     try:
+        # --- Verificación de Reloj de Mercado ---
+        reloj = trading_client.get_clock()
+        if not reloj.is_open:
+            return "Operación cancelada: El mercado está cerrado. Se evitan órdenes para prevenir gaps de apertura."
+
         side = OrderSide.BUY if accion.upper() == "BUY" else OrderSide.SELL
 
         # --- Obtención de Precio y Position Sizing ---
@@ -93,7 +98,7 @@ def ejecutar_orden_mercado(
                 limit_price=limit_price,
                 qty=cantidad,
                 side=side,
-                time_in_force=TimeInForce.GTC,
+                time_in_force=TimeInForce.DAY,
                 order_class=OrderClass.BRACKET,
                 stop_loss=StopLossRequest(stop_price=round(stop_loss, 2)),
                 take_profit=TakeProfitRequest(limit_price=round(take_profit, 2))
@@ -105,7 +110,7 @@ def ejecutar_orden_mercado(
                 limit_price=limit_price,
                 qty=cantidad,
                 side=side,
-                time_in_force=TimeInForce.GTC
+                time_in_force=TimeInForce.DAY
             )
         
         orden = trading_client.submit_order(order_data=order_data)
