@@ -164,7 +164,6 @@ def ejecutor(state: MyState, config: Optional[RunnableConfig] = None):
         resultado = ejecutar_orden_mercado.invoke({
             "ticker": state["ticker"],
             "accion": "BUY",
-            "cantidad": 1,
             "stop_loss": state["precio_stop_loss"],
             "take_profit": state["precio_take_profit"]
         })
@@ -174,7 +173,6 @@ def ejecutor(state: MyState, config: Optional[RunnableConfig] = None):
         resultado = ejecutar_orden_mercado.invoke({
             "ticker": state["ticker"],
             "accion": "SELL",
-            "cantidad": 1,
             "stop_loss": state["precio_stop_loss"],
             "take_profit": state["precio_take_profit"]
         })

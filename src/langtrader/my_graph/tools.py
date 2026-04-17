@@ -1,9 +1,10 @@
 import os
+import math
 import yfinance as yf
 from datetime import datetime, timedelta
 from langchain_core.tools import tool
 from alpaca.data.historical import StockHistoricalDataClient
-from alpaca.data.requests import StockBarsRequest
+from alpaca.data.requests import StockBarsRequest, StockLatestQuoteRequest
 from alpaca.data.timeframe import TimeFrame
 from alpaca.data.enums import DataFeed
 from alpaca.trading.client import TradingClient
@@ -18,19 +19,65 @@ ALPACA_SECRET_KEY = os.getenv("ALPACA_SECRET_KEY")
 stock_client = StockHistoricalDataClient(ALPACA_API_KEY, ALPACA_SECRET_KEY)
 trading_client = TradingClient(ALPACA_API_KEY, ALPACA_SECRET_KEY, paper=True)
 
+def _obtener_precio_actual(ticker: str) -> float:
+    """Obtiene el último precio del ticker vía Alpaca (IEX) con fallback a yfinance."""
+    try:
+        quote = stock_client.get_stock_latest_quote(StockLatestQuoteRequest(
+            symbol_or_symbols=ticker,
+            feed=DataFeed.IEX
+        ))
+        if ticker in quote and quote[ticker].ask_price > 0:
+            return float(quote[ticker].ask_price)
+    except Exception:
+        pass
+    # Fallback a yfinance
+    stock = yf.Ticker(ticker)
+    hist = stock.history(period="1d")
+    if not hist.empty:
+        return float(hist['Close'].iloc[-1])
+    raise ValueError(f"No se pudo obtener precio actual de {ticker}")
+
+def _calcular_position_size(ticker: str, stop_loss: float, riesgo_porcentaje: float) -> tuple[int, float, float]:
+    """Calcula la cantidad de acciones basándose en el equity, SL y % de riesgo.
+    Retorna (cantidad, precio_actual, equity)."""
+    account = trading_client.get_account()
+    equity = float(account.equity)
+    precio_actual = _obtener_precio_actual(ticker)
+    
+    capital_en_riesgo = equity * (riesgo_porcentaje / 100.0)
+    riesgo_por_accion = abs(precio_actual - stop_loss)
+    
+    if riesgo_por_accion <= 0:
+        raise ValueError(f"Riesgo por acción inválido: precio={precio_actual}, SL={stop_loss}")
+    
+    cantidad = math.floor(capital_en_riesgo / riesgo_por_accion)
+    cantidad = max(cantidad, 1)  # Mínimo 1 acción
+    
+    return cantidad, precio_actual, equity
+
 @tool
 def ejecutar_orden_mercado(
     ticker: str,
     accion: str,
-    cantidad: int = 1,
     stop_loss: float = 0.0,
-    take_profit: float = 0.0
+    take_profit: float = 0.0,
+    riesgo_porcentaje: float = 1.0
 ) -> str:
-    """Ejecuta una orden de compra (BUY) o venta (SELL) a precio de mercado en Alpaca.
-    Si se proporcionan stop_loss y take_profit (> 0), envía una Bracket Order (OTO)
-    con TakeProfitRequest y StopLossRequest vinculados automáticamente."""
+    """Ejecuta una orden de compra (BUY) o venta (SELL) a precio de mercado en Alpaca
+    con Position Sizing dinámico. Calcula la cantidad de acciones arriesgando un
+    porcentaje del equity de la cuenta basándose en la distancia al Stop-Loss.
+    Si stop_loss y take_profit > 0, envía una Bracket Order (OTO)."""
     try:
         side = OrderSide.BUY if accion.upper() == "BUY" else OrderSide.SELL
+
+        # --- Position Sizing dinámico ---
+        if stop_loss > 0:
+            cantidad, precio_actual, equity = _calcular_position_size(ticker, stop_loss, riesgo_porcentaje)
+            print(f"   📊 Position Sizing: Equity=${equity:,.2f} | Precio={precio_actual:.2f} | "
+                  f"Riesgo/acc=${abs(precio_actual - stop_loss):.2f} | Cantidad={cantidad} acc.")
+        else:
+            cantidad = 1  # Fallback si no hay SL
+            print(f"   ⚠️ Sin Stop-Loss definido. Usando cantidad fija: {cantidad}")
 
         # Si tenemos SL y TP válidos, creamos una orden bracket (OTO)
         if stop_loss > 0 and take_profit > 0:
