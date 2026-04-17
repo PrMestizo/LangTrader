@@ -55,7 +55,6 @@ async def procesar_noticia(noticia):
                 "decision_accion": "",
                 "precio_stop_loss": 0.0,
                 "precio_take_profit": 0.0,
-                "riesgo_sugerido_porcentaje": 0.0,
                 "justificacion": "",
                 "accion_ejecutada": ""
             }
@@ -64,7 +63,7 @@ async def procesar_noticia(noticia):
             resultado = workflow.invoke(estado_inicial)
             
             print(f"\n🤖 Moderador Veredicto: {resultado['decision_accion']}")
-            print(f"   SL: {resultado['precio_stop_loss']} | TP: {resultado['precio_take_profit']} | Riesgo: {resultado['riesgo_sugerido_porcentaje']}%")
+            print(f"   SL: {resultado['precio_stop_loss']} | TP: {resultado['precio_take_profit']}")
             print(f"   Justificación: {resultado['justificacion']}")
             print(f"✅ Resultado de Ejecución: {resultado['accion_ejecutada']}")
         else:

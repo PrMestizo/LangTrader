@@ -8,7 +8,7 @@ from alpaca.data.timeframe import TimeFrame
 from alpaca.data.enums import DataFeed
 from alpaca.trading.client import TradingClient
 from alpaca.trading.requests import MarketOrderRequest
-from alpaca.trading.enums import OrderSide, TimeInForce
+from alpaca.trading.enums import OrderSide, TimeInForce, OrderClass
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -19,20 +19,45 @@ stock_client = StockHistoricalDataClient(ALPACA_API_KEY, ALPACA_SECRET_KEY)
 trading_client = TradingClient(ALPACA_API_KEY, ALPACA_SECRET_KEY, paper=True)
 
 @tool
-def ejecutar_orden_mercado(ticker: str, accion: str, cantidad: int = 1) -> str:
-    """Ejecuta una orden de compra (BUY) o venta (SELL) a precio de mercado en Alpaca."""
+def ejecutar_orden_mercado(
+    ticker: str,
+    accion: str,
+    cantidad: int = 1,
+    stop_loss: float = 0.0,
+    take_profit: float = 0.0
+) -> str:
+    """Ejecuta una orden de compra (BUY) o venta (SELL) a precio de mercado en Alpaca.
+    Si se proporcionan stop_loss y take_profit (> 0), envía una orden bracket (OTO)
+    que incluye automáticamente las órdenes de salida vinculadas."""
     try:
         side = OrderSide.BUY if accion.upper() == "BUY" else OrderSide.SELL
-        
-        market_order_data = MarketOrderRequest(
-            symbol=ticker,
-            qty=cantidad,
-            side=side,
-            time_in_force=TimeInForce.GTC
-        )
+
+        # Si tenemos SL y TP válidos, creamos una orden bracket (OTO)
+        if stop_loss > 0 and take_profit > 0:
+            market_order_data = MarketOrderRequest(
+                symbol=ticker,
+                qty=cantidad,
+                side=side,
+                time_in_force=TimeInForce.GTC,
+                order_class=OrderClass.BRACKET,
+                stop_loss={"stop_price": round(stop_loss, 2)},
+                take_profit={"limit_price": round(take_profit, 2)}
+            )
+        else:
+            # Orden simple sin bracket
+            market_order_data = MarketOrderRequest(
+                symbol=ticker,
+                qty=cantidad,
+                side=side,
+                time_in_force=TimeInForce.GTC
+            )
         
         orden = trading_client.submit_order(order_data=market_order_data)
-        return f"Orden {accion} ejecutada exitosamente para {cantidad} acciones de {ticker}. Status: {orden.status}"
+
+        msg = f"Orden {accion} ejecutada para {cantidad} acc. de {ticker}. Status: {orden.status}"
+        if stop_loss > 0 and take_profit > 0:
+            msg += f" | Bracket: SL={stop_loss:.2f}, TP={take_profit:.2f}"
+        return msg
     except Exception as e:
         return f"Fallo al ejecutar orden {accion} en {ticker}: {str(e)}"
 

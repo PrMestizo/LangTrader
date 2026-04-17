@@ -23,15 +23,14 @@ class MyState(TypedDict):
     decision_accion: str                # BUY, SELL, HOLD o REVISAR
     precio_stop_loss: float
     precio_take_profit: float
-    riesgo_sugerido_porcentaje: float
     justificacion: str
     accion_ejecutada: str
 
 # ============================================================
 # 1.5. Modelo Pydantic para Salida Estructurada
 # ============================================================
-class OrdenDeTrading(BaseModel):
-    """Orden de trading estructurada generada por el gestor de riesgos."""
+class DecisionModerador(BaseModel):
+    """Decisión estructurada del moderador/gestor de riesgos."""
     decision_accion: str = Field(
         description=(
             "La acción a tomar. DEBE ser estrictamente una de estas 4 opciones: "
@@ -42,26 +41,19 @@ class OrdenDeTrading(BaseModel):
     )
     precio_stop_loss: float = Field(
         description=(
-            "Precio de Stop-Loss. Es el nivel de precio donde se cierra la posición "
-            "para limitar pérdidas. Debe calcularse a partir del mínimo reciente "
-            "reportado por el Analista Técnico (ligeramente por debajo para BUY, "
-            "ligeramente por encima del máximo para SELL). "
+            "Precio exacto de Stop-Loss. Nivel de precio donde se cierra la posición "
+            "para limitar pérdidas. Para BUY: usar el mínimo reciente del Analista "
+            "Técnico menos un pequeño margen (ej. mínimo - 0.5%). Para SELL: usar el "
+            "máximo reciente más un pequeño margen (ej. máximo + 0.5%). "
             "Debe ser 0.0 si la acción es 'HOLD' o 'REVISAR'."
         )
     )
     precio_take_profit: float = Field(
         description=(
-            "Precio de Take-Profit. Es el nivel de precio donde se cierra la posición "
+            "Precio exacto de Take-Profit. Nivel de precio donde se cierra la posición "
             "para asegurar beneficios. DEBE respetar un ratio Riesgo/Beneficio mínimo "
             "de 1:2 respecto al Stop-Loss. Por ejemplo, si el riesgo (distancia al SL) "
             "es $2, el beneficio (distancia al TP) debe ser al menos $4. "
-            "Debe ser 0.0 si la acción es 'HOLD' o 'REVISAR'."
-        )
-    )
-    riesgo_sugerido_porcentaje: float = Field(
-        description=(
-            "Porcentaje del capital total de la cuenta que se sugiere arriesgar en esta "
-            "operación. Debe estar entre 1.0 y 2.0 para operaciones de BUY o SELL. "
             "Debe ser 0.0 si la acción es 'HOLD' o 'REVISAR'."
         )
     )
@@ -144,17 +136,16 @@ Técnico: {analisis_tecnico}
 Fundamental: {analisis_fundamental}
 Sentimiento Social: {analisis_sentimiento}""")
     ])
-    agente_estructurado = prompt | llm.with_structured_output(OrdenDeTrading)
+    agente_estructurado = prompt | llm.with_structured_output(DecisionModerador)
     orden = agente_estructurado.invoke(state)
 
-    print(f"   -> Decisión: {orden.decision_accion} | SL: {orden.precio_stop_loss} | TP: {orden.precio_take_profit} | Riesgo: {orden.riesgo_sugerido_porcentaje}%")
+    print(f"   -> Decisión: {orden.decision_accion} | SL: {orden.precio_stop_loss} | TP: {orden.precio_take_profit}")
     print(f"   -> Justificación: {orden.justificacion}")
 
     return {
         "decision_accion": orden.decision_accion,
         "precio_stop_loss": orden.precio_stop_loss,
         "precio_take_profit": orden.precio_take_profit,
-        "riesgo_sugerido_porcentaje": orden.riesgo_sugerido_porcentaje,
         "justificacion": orden.justificacion,
     }
 
@@ -164,12 +155,24 @@ def ejecutor(state: MyState, config: Optional[RunnableConfig] = None):
     
     if accion == "BUY":
         print(f"🛒 Ejecutando orden de COMPRA para {state['ticker']}...")
-        print(f"   SL: {state['precio_stop_loss']} | TP: {state['precio_take_profit']} | Riesgo: {state['riesgo_sugerido_porcentaje']}%")
-        resultado = ejecutar_orden_mercado.invoke({"ticker": state["ticker"], "accion": "BUY", "cantidad": 1})
+        print(f"   SL: {state['precio_stop_loss']} | TP: {state['precio_take_profit']}")
+        resultado = ejecutar_orden_mercado.invoke({
+            "ticker": state["ticker"],
+            "accion": "BUY",
+            "cantidad": 1,
+            "stop_loss": state["precio_stop_loss"],
+            "take_profit": state["precio_take_profit"]
+        })
     elif accion == "SELL":
         print(f"💸 Ejecutando orden de VENTA para {state['ticker']}...")
-        print(f"   SL: {state['precio_stop_loss']} | TP: {state['precio_take_profit']} | Riesgo: {state['riesgo_sugerido_porcentaje']}%")
-        resultado = ejecutar_orden_mercado.invoke({"ticker": state["ticker"], "accion": "SELL", "cantidad": 1})
+        print(f"   SL: {state['precio_stop_loss']} | TP: {state['precio_take_profit']}")
+        resultado = ejecutar_orden_mercado.invoke({
+            "ticker": state["ticker"],
+            "accion": "SELL",
+            "cantidad": 1,
+            "stop_loss": state["precio_stop_loss"],
+            "take_profit": state["precio_take_profit"]
+        })
     else:
         print(f"⏸️ Ninguna orden ejecutada. (Decisión: {accion})")
         resultado = f"Mantenido ({accion}). Ninguna orden ejecutada hacia la API."
