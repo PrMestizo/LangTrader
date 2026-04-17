@@ -52,13 +52,15 @@ async def procesar_noticia(noticia):
                 "analisis_tecnico": "",
                 "analisis_fundamental": "",
                 "analisis_sentimiento": "",
-                "decision_final": ""
+                "decision_final": "",
+                "accion_ejecutada": ""
             }
             
             # EJECUTAMOS TU GRAFO
             resultado = workflow.invoke(estado_inicial)
             
-            print(f"\n🤖 Veredicto Final del Grafo: {resultado['decision_final']}")
+            print(f"\n🤖 Moderador Veredicto: {resultado['decision_final']}")
+            print(f"✅ Resultado de Ejecución: {resultado['accion_ejecutada']}")
         else:
             print("💤 Falsa alarma. Los agentes siguen durmiendo.")
 

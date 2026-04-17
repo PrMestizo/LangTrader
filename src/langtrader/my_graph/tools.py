@@ -6,6 +6,9 @@ from alpaca.data.historical import StockHistoricalDataClient
 from alpaca.data.requests import StockBarsRequest
 from alpaca.data.timeframe import TimeFrame
 from alpaca.data.enums import DataFeed
+from alpaca.trading.client import TradingClient
+from alpaca.trading.requests import MarketOrderRequest
+from alpaca.trading.enums import OrderSide, TimeInForce
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -13,6 +16,25 @@ ALPACA_API_KEY = os.getenv("ALPACA_API_KEY")
 ALPACA_SECRET_KEY = os.getenv("ALPACA_SECRET_KEY")
 
 stock_client = StockHistoricalDataClient(ALPACA_API_KEY, ALPACA_SECRET_KEY)
+trading_client = TradingClient(ALPACA_API_KEY, ALPACA_SECRET_KEY, paper=True)
+
+@tool
+def ejecutar_orden_mercado(ticker: str, accion: str, cantidad: int = 1) -> str:
+    """Ejecuta una orden de compra (BUY) o venta (SELL) a precio de mercado en Alpaca."""
+    try:
+        side = OrderSide.BUY if accion.upper() == "BUY" else OrderSide.SELL
+        
+        market_order_data = MarketOrderRequest(
+            symbol=ticker,
+            qty=cantidad,
+            side=side,
+            time_in_force=TimeInForce.GTC
+        )
+        
+        orden = trading_client.submit_order(order_data=market_order_data)
+        return f"Orden {accion} ejecutada exitosamente para {cantidad} acciones de {ticker}. Status: {orden.status}"
+    except Exception as e:
+        return f"Fallo al ejecutar orden {accion} en {ticker}: {str(e)}"
 
 @tool
 def buscar_sentimiento_social(ticker: str) -> str:

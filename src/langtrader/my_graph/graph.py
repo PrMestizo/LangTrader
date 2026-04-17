@@ -20,6 +20,7 @@ class MyState(TypedDict):
     analisis_fundamental: str
     analisis_sentimiento: str
     decision_final: str
+    accion_ejecutada: str
 
 # ============================================================
 # 2. Las Herramientas (Los "ojos" y "manos" de los agentes)
@@ -27,7 +28,8 @@ class MyState(TypedDict):
 from langtrader.my_graph.tools import (
     buscar_sentimiento_social,
     analizar_grafica_1m,
-    evaluar_dependencia_fundamental
+    evaluar_dependencia_fundamental,
+    ejecutar_orden_mercado
 )
 
 # Inicializamos el LLM (Asegúrate de tener OPENAI_API_KEY en tu .env)
@@ -67,44 +69,68 @@ def analista_fundamental(state: MyState, config: Optional[RunnableConfig] = None
     respuesta = agente.invoke(state)
     return {"analisis_fundamental": respuesta.content}
 
-def moderador_ejecutor(state: MyState, config: Optional[RunnableConfig] = None):
-    print(f"⚖️ Ejecutor sintetizando datos para {state['ticker']}...")
+def moderador(state: MyState, config: Optional[RunnableConfig] = None):
+    print(f"⚖️ Moderador sintetizando datos para {state['ticker']}...")
     prompt = ChatPromptTemplate.from_messages([
-        ("system", "Eres el gestor de riesgos y tomador de decisiones final. Lee los análisis de tu equipo. Si la caída es por pánico minorista pero el impacto fundamental es bajo y hay compras institucionales, compra. Decide: BUY, SELL o HOLD y justifica brevemente."),
-        ("human", """
-        Noticia original: {noticia} (Sentimiento Radar: {sentimiento_radar})
-        
-        -- REPORTES --
-        Técnico: {analisis_tecnico}
-        Fundamental: {analisis_fundamental}
-        Sentimiento Social: {analisis_sentimiento}
-        """)
+        ("system", "Eres el gestor de riesgos. Lee los análisis de tu equipo. Decide: BUY, SELL, HOLD, o REVISAR (si crees que falta información, hay contradicciones o fallos en las peticiones y deben volver a buscar). Tu respuesta DEBE empezar explícitamente con una de esas 4 palabras clave, seguido de una breve justificación."),
+        ("human", "Noticia original: {noticia} (Sentimiento Radar: {sentimiento_radar})\n\n-- REPORTES --\nTécnico: {analisis_tecnico}\nFundamental: {analisis_fundamental}\nSentimiento Social: {analisis_sentimiento}")
     ])
     agente = prompt | llm
     respuesta = agente.invoke(state)
     return {"decision_final": respuesta.content}
 
+def ejecutor(state: MyState, config: Optional[RunnableConfig] = None):
+    print(f"🚀 Ejecutor procesando orden para {state['ticker']}...")
+    decision = state['decision_final'].upper()
+    
+    if "BUY" in decision:
+        print(f"🛒 Ejecutando orden de COMPRA para {state['ticker']}...")
+        resultado = ejecutar_orden_mercado.invoke({"ticker": state["ticker"], "accion": "BUY", "cantidad": 1})
+    elif "SELL" in decision:
+        print(f"💸 Ejecutando orden de VENTA para {state['ticker']}...")
+        resultado = ejecutar_orden_mercado.invoke({"ticker": state["ticker"], "accion": "SELL", "cantidad": 1})
+    else:
+        print(f"⏸️ Ninguna orden ejecutada. (Decisión: HOLD)")
+        resultado = "Mantenido (HOLD). Ninguna orden ejecutada hacia la API."
+        
+    return {"accion_ejecutada": resultado}
+
 # ============================================================
-# 4. Construcción del Grafo
+# 4. Conditional Edges
+# ============================================================
+
+def router_moderador(state: MyState):
+    decision = state.get("decision_final", "").upper()
+    if "REVISAR" in decision or "CORREGIR" in decision:
+        print("🔄 El Moderador ha solicitado REVISIÓN. Volviendo a los Analistas...")
+        return ["Analista_Tecnico", "Analista_Fundamental", "Analista_Sentimiento"]
+    return ["Ejecutor"]
+
+# ============================================================
+# 5. Construcción del Grafo
 # ============================================================
 builder = StateGraph(MyState)
 
 builder.add_node("Analista_Tecnico", analista_tecnico)
 builder.add_node("Analista_Fundamental", analista_fundamental)
 builder.add_node("Analista_Sentimiento", analista_sentimiento)
-builder.add_node("Ejecutor", moderador_ejecutor)
+builder.add_node("Moderador", moderador)
+builder.add_node("Ejecutor", ejecutor)
 
 # El flujo: Inicio -> [Técnico, Fundamental, Sentimiento] en paralelo
 builder.add_edge(START, "Analista_Tecnico")
 builder.add_edge(START, "Analista_Fundamental")
 builder.add_edge(START, "Analista_Sentimiento")
 
-# Todos terminan y le pasan la información al Ejecutor
-builder.add_edge("Analista_Tecnico", "Ejecutor")
-builder.add_edge("Analista_Fundamental", "Ejecutor")
-builder.add_edge("Analista_Sentimiento", "Ejecutor")
+# Todos terminan y le pasan la información al Moderador
+builder.add_edge("Analista_Tecnico", "Moderador")
+builder.add_edge("Analista_Fundamental", "Moderador")
+builder.add_edge("Analista_Sentimiento", "Moderador")
 
-# El Ejecutor toma la decisión y termina el proceso
+# Desde el Moderador, enrutamos condicionalmente a revisar o al Ejecutor
+builder.add_conditional_edges("Moderador", router_moderador)
+
+# El Ejecutor toma la decisión final de API y termina el proceso
 builder.add_edge("Ejecutor", END)
 
 workflow = builder.compile()
