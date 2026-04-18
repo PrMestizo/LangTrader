@@ -35,7 +35,9 @@ async def procesar_noticia(noticia):
         print(f"\n🚨 ALERTA: Palabra clave detectada en {ticker}!")
         
         # FILTRO B: Triaje con IA ligera
-        resultado_nlp = nlp_finanzas(titular)[0]
+        # Corremos el pipeline en un thread separado para no bloquear el WebSockets de Alpaca
+        resultado_nlp_list = await asyncio.to_thread(nlp_finanzas, titular)
+        resultado_nlp = resultado_nlp_list[0]
         sentimiento = resultado_nlp["label"]
         confianza = resultado_nlp["score"]
         
@@ -60,8 +62,8 @@ async def procesar_noticia(noticia):
                 "intentos_revision": 0
             }
             
-            # EJECUTAMOS TU GRAFO
-            resultado = workflow.invoke(estado_inicial)
+            # EJECUTAMOS TU GRAFO DE FORMA ASÍNCRONA
+            resultado = await workflow.ainvoke(estado_inicial)
             
             print(f"\n🤖 Moderador Veredicto: {resultado['decision_accion']}")
             print(f"   SL: {resultado['precio_stop_loss']} | TP: {resultado['precio_take_profit']}")
