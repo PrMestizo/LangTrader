@@ -1,5 +1,6 @@
 import asyncio
 import os
+import time
 from dotenv import load_dotenv
 from transformers import pipeline
 from alpaca.data.live import NewsDataStream
@@ -78,19 +79,21 @@ async def procesar_noticia(noticia):
 
 
 def escuchar_noticias():
-    logger.info("Conectando a Alpaca News Stream...")
-    # Inicializamos el cliente de WebSockets
-    news_stream = NewsDataStream(ALPACA_API_KEY, ALPACA_SECRET_KEY)
-    
-    # Suscribirse a todas las noticias ("*")
-    news_stream.subscribe_news(procesar_noticia, "*")
-    
-    logger.info("Radar Rápido encendido. Escuchando mercado en tiempo real...")
-    # Arrancamos el loop bloqueante de Alpaca (mantiene la conexión abierta)
-    try:
-        news_stream.run()
-    except Exception as e:
-        logger.error(f"Error crítico en WebSockets: {e}", exc_info=True)
+    while True:
+        try:
+            logger.info("Conectando a Alpaca News Stream...")
+            # Inicializamos el cliente de WebSockets
+            news_stream = NewsDataStream(ALPACA_API_KEY, ALPACA_SECRET_KEY)
+            
+            # Suscribirse a todas las noticias ("*")
+            news_stream.subscribe_news(procesar_noticia, "*")
+            
+            logger.info("Radar Rápido encendido. Escuchando mercado en tiempo real...")
+            # Arrancamos el loop bloqueante de Alpaca (mantiene la conexión abierta)
+            news_stream.run()
+        except Exception as e:
+            logger.error(f"WebSocket desconectado o error crítico: {e}. Intentando reconectar en 5 segundos...", exc_info=True)
+            time.sleep(5)
 
 if __name__ == "__main__":
     escuchar_noticias()
