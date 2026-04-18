@@ -123,7 +123,7 @@ def ejecutar_orden_mercado(
                 limit_price=limit_price,
                 qty=cantidad,
                 side=side,
-                time_in_force=TimeInForce.DAY,
+                time_in_force=TimeInForce.IOC,
                 order_class=OrderClass.BRACKET,
                 stop_loss=StopLossRequest(stop_price=round(stop_loss, 2)),
                 take_profit=TakeProfitRequest(limit_price=round(take_profit, 2))
@@ -135,7 +135,7 @@ def ejecutar_orden_mercado(
                 limit_price=limit_price,
                 qty=cantidad,
                 side=side,
-                time_in_force=TimeInForce.DAY
+                time_in_force=TimeInForce.IOC
             )
         
         orden = trading_client.submit_order(order_data=order_data)
