@@ -12,6 +12,9 @@ from langtrader.logger import logger
 
 load_dotenv()
 
+MAX_INTENTOS_REVISION = int(os.getenv("MAX_INTENTOS_REVISION", "2"))
+LLM_MODEL = os.getenv("LLM_MODEL", "gpt-4o-mini")
+
 # ============================================================
 # 1. El Estado Compartido (La Pizarra)
 # ============================================================
@@ -79,7 +82,7 @@ from langtrader.my_graph.tools import (
 )
 
 # Inicializamos el LLM (Asegúrate de tener OPENAI_API_KEY en tu .env)
-llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+llm = ChatOpenAI(model=LLM_MODEL, temperature=0)
 
 # ============================================================
 # 3. Los Nodos (Los Agentes)
@@ -131,8 +134,6 @@ def analista_fundamental(state: MyState, config: Optional[RunnableConfig] = None
     except Exception as e:
         logger.error(f"Error crítico en Analista Fundamental tras reintentos: {e}")
         return {"analisis_fundamental": "Error analizando fundamentales (LLM Timeout/RateLimit)."}
-
-MAX_INTENTOS_REVISION = 2
 
 def moderador(state: MyState, config: Optional[RunnableConfig] = None):
     intentos = state.get('intentos_revision', 0) + 1

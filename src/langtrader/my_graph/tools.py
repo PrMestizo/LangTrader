@@ -18,6 +18,10 @@ load_dotenv()
 ALPACA_API_KEY = os.getenv("ALPACA_API_KEY")
 ALPACA_SECRET_KEY = os.getenv("ALPACA_SECRET_KEY")
 
+RIESGO_PORCENTAJE_DEFAULT = float(os.getenv("RIESGO_PORCENTAJE_DEFAULT", "1.0"))
+SLIPPAGE_BUY = float(os.getenv("SLIPPAGE_BUY", "1.005"))
+SLIPPAGE_SELL = float(os.getenv("SLIPPAGE_SELL", "0.995"))
+
 stock_client = StockHistoricalDataClient(ALPACA_API_KEY, ALPACA_SECRET_KEY)
 trading_client = TradingClient(ALPACA_API_KEY, ALPACA_SECRET_KEY, paper=True)
 
@@ -69,7 +73,7 @@ def ejecutar_orden_mercado(
     accion: str,
     stop_loss: float = 0.0,
     take_profit: float = 0.0,
-    riesgo_porcentaje: float = 1.0
+    riesgo_porcentaje: float = RIESGO_PORCENTAJE_DEFAULT
 ) -> str:
     """Ejecuta una orden de compra (BUY) o venta (SELL) a precio de mercado en Alpaca
     con Position Sizing dinámico. Calcula la cantidad de acciones arriesgando un
@@ -112,11 +116,11 @@ def ejecutar_orden_mercado(
             precio_actual = _obtener_precio_actual(ticker)
             logger.info(f"Sin Stop-Loss definido para {ticker}. Usando cantidad fija: {cantidad} | Precio={precio_actual:.2f}")
 
-        # --- Cálculo del Limit Price (Protección contra Slippage del 0.5%) ---
+        # --- Cálculo del Limit Price (Protección contra Slippage basada en Entorno) ---
         if side == OrderSide.BUY:
-            limit_price = round(precio_actual * 1.005, 2)
+            limit_price = round(precio_actual * SLIPPAGE_BUY, 2)
         else:
-            limit_price = round(precio_actual * 0.995, 2)
+            limit_price = round(precio_actual * SLIPPAGE_SELL, 2)
 
         # Si tenemos SL y TP válidos, creamos una orden bracket (OTO) con un Límite de entrada
         if stop_loss > 0 and take_profit > 0:

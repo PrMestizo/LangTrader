@@ -14,9 +14,10 @@ from langtrader.my_graph.graph import workflow
 # Cargar API Keys del archivo .env
 load_dotenv()
 ALPACA_API_KEY = os.getenv("ALPACA_API_KEY")
-ALPACA_SECRET_KEY = os.getenv("ALPACA_SECRET_KEY")
+PALABRAS_CLAVE_ENV = os.getenv("PALABRAS_CLAVE", "bancarrota,adquisicion,fraude,dimision,acuerdo")
+PALABRAS_CLAVE = [p.strip().lower() for p in PALABRAS_CLAVE_ENV.split(",") if p.strip()]
 
-PALABRAS_CLAVE = ["bancarrota", "adquisicion", "fraude", "dimision", "acuerdo"]
+CONFIANZA_MINIMA = float(os.getenv("CONFIANZA_MINIMA", "0.85"))
 
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=2, min=2, max=8), reraise=True)
 async def safe_ainvoke(workflow, estado):
@@ -52,7 +53,7 @@ async def procesar_noticia(noticia):
         
         logger.info(f"FinBERT dictamina: {sentimiento} (Confianza: {confianza:.2f})")
         
-        if sentimiento in ["negative", "positive"] and confianza > 0.85:
+        if sentimiento in ["negative", "positive"] and confianza > CONFIANZA_MINIMA:
             logger.info(f"Noticia crítica. Despertando al Comité de LangGraph para {ticker}...")
             
             # --- CONEXIÓN CON TU ARCHIVO graph.py ---
