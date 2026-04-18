@@ -4,6 +4,7 @@ import time
 from dotenv import load_dotenv
 from transformers import pipeline
 from alpaca.data.live import NewsDataStream
+from tenacity import retry, stop_after_attempt, wait_exponential
 
 from langtrader.logger import logger
 
@@ -16,6 +17,10 @@ ALPACA_API_KEY = os.getenv("ALPACA_API_KEY")
 ALPACA_SECRET_KEY = os.getenv("ALPACA_SECRET_KEY")
 
 PALABRAS_CLAVE = ["bancarrota", "adquisicion", "fraude", "dimision", "acuerdo"]
+
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=2, min=2, max=8), reraise=True)
+async def safe_ainvoke(workflow, estado):
+    return await workflow.ainvoke(estado)
 
 logger.info("Cargando modelo FinBERT (esto tarda unos segundos)...")
 nlp_finanzas = pipeline("sentiment-analysis", model="ProsusAI/finbert")
@@ -66,12 +71,16 @@ async def procesar_noticia(noticia):
                 "intentos_revision": 0
             }
             
-            # EJECUTAMOS TU GRAFO DE FORMA ASÍNCRONA
-            resultado = await workflow.ainvoke(estado_inicial)
-            
-            logger.info(f"Moderador Veredicto: {resultado['decision_accion']} | SL: {resultado['precio_stop_loss']} | TP: {resultado['precio_take_profit']}")
-            logger.info(f"Justificación: {resultado['justificacion']}")
-            logger.info(f"Resultado de Ejecución: {resultado['accion_ejecutada']}")
+            # EJECUTAMOS TU GRAFO DE FORMA ASÍNCRONA (A PRUEBA DE FALLOS LLM)
+            try:
+                resultado = await safe_ainvoke(workflow, estado_inicial)
+                
+                logger.info(f"Moderador Veredicto: {resultado['decision_accion']} | SL: {resultado['precio_stop_loss']} | TP: {resultado['precio_take_profit']}")
+                logger.info(f"Justificación: {resultado['justificacion']}")
+                logger.info(f"Resultado de Ejecución: {resultado['accion_ejecutada']}")
+            except Exception as e:
+                logger.error(f"Fallback Global: LangGraph falló tras reintentos (ej. 429/503). Forzando HOLD para {ticker}.")
+                logger.info("El bot sobrevivió al fallo de la API. Esperando la siguiente noticia.")
         else:
             logger.info("Falsa alarma. Los agentes siguen durmiendo.")
     except Exception as e:

@@ -6,6 +6,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from langgraph.graph import StateGraph, START, END
 from pydantic import BaseModel, Field
 from dotenv import load_dotenv
+from tenacity import retry, stop_after_attempt, wait_exponential
 
 from langtrader.logger import logger
 
@@ -83,6 +84,11 @@ llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
 # ============================================================
 # 3. Los Nodos (Los Agentes)
 # ============================================================
+
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=2, min=2, max=8), reraise=True)
+def safe_invoke(agente, state):
+    return agente.invoke(state)
+
 def analista_sentimiento(state: MyState, config: Optional[RunnableConfig] = None):
     logger.info(f"Sentimiento buscando reacciones sociales para {state['ticker']}...")
     prompt = ChatPromptTemplate.from_messages([
@@ -91,8 +97,12 @@ def analista_sentimiento(state: MyState, config: Optional[RunnableConfig] = None
     ])
     # Le atamos la herramienta de redes sociales
     agente = prompt | llm.bind_tools([buscar_sentimiento_social])
-    respuesta = agente.invoke(state)
-    return {"analisis_sentimiento": respuesta.content}
+    try:
+        respuesta = safe_invoke(agente, state)
+        return {"analisis_sentimiento": respuesta.content}
+    except Exception as e:
+        logger.error(f"Error crítico en Analista Sentimiento tras reintentos: {e}")
+        return {"analisis_sentimiento": "Error obteniendo sentimiento social (LLM Timeout/RateLimit)."}
 
 def analista_tecnico(state: MyState, config: Optional[RunnableConfig] = None):
     logger.info(f"Técnico analizando volumen y gráficas de {state['ticker']}...")
@@ -101,8 +111,12 @@ def analista_tecnico(state: MyState, config: Optional[RunnableConfig] = None):
         ("human", "Ticker: {ticker}\nNoticia: {noticia}")
     ])
     agente = prompt | llm.bind_tools([analizar_grafica_1m])
-    respuesta = agente.invoke(state)
-    return {"analisis_tecnico": respuesta.content}
+    try:
+        respuesta = safe_invoke(agente, state)
+        return {"analisis_tecnico": respuesta.content}
+    except Exception as e:
+        logger.error(f"Error crítico en Analista Técnico tras reintentos: {e}")
+        return {"analisis_tecnico": "Error analizando gráficas (LLM Timeout/RateLimit)."}
 
 def analista_fundamental(state: MyState, config: Optional[RunnableConfig] = None):
     logger.info(f"Fundamental evaluando el impacto real en {state['ticker']}...")
@@ -111,8 +125,12 @@ def analista_fundamental(state: MyState, config: Optional[RunnableConfig] = None
         ("human", "Ticker: {ticker}\nNoticia: {noticia}")
     ])
     agente = prompt | llm.bind_tools([evaluar_dependencia_fundamental])
-    respuesta = agente.invoke(state)
-    return {"analisis_fundamental": respuesta.content}
+    try:
+        respuesta = safe_invoke(agente, state)
+        return {"analisis_fundamental": respuesta.content}
+    except Exception as e:
+        logger.error(f"Error crítico en Analista Fundamental tras reintentos: {e}")
+        return {"analisis_fundamental": "Error analizando fundamentales (LLM Timeout/RateLimit)."}
 
 MAX_INTENTOS_REVISION = 2
 
@@ -143,18 +161,28 @@ Fundamental: {analisis_fundamental}
 Sentimiento Social: {analisis_sentimiento}""")
     ])
     agente_estructurado = prompt | llm.with_structured_output(DecisionModerador)
-    orden = agente_estructurado.invoke(state)
+    try:
+        orden = safe_invoke(agente_estructurado, state)
+        
+        logger.info(f"Decisión: {orden.decision_accion} | SL: {orden.precio_stop_loss} | TP: {orden.precio_take_profit}")
+        logger.info(f"Justificación: {orden.justificacion}")
 
-    logger.info(f"Decisión: {orden.decision_accion} | SL: {orden.precio_stop_loss} | TP: {orden.precio_take_profit}")
-    logger.info(f"Justificación: {orden.justificacion}")
-
-    return {
-        "decision_accion": orden.decision_accion,
-        "precio_stop_loss": orden.precio_stop_loss,
-        "precio_take_profit": orden.precio_take_profit,
-        "justificacion": orden.justificacion,
-        "intentos_revision": intentos,
-    }
+        return {
+            "decision_accion": orden.decision_accion,
+            "precio_stop_loss": orden.precio_stop_loss,
+            "precio_take_profit": orden.precio_take_profit,
+            "justificacion": orden.justificacion,
+            "intentos_revision": intentos,
+        }
+    except Exception as e:
+        logger.error(f"Error crítico en Moderador tras reintentos: {e}")
+        return {
+            "decision_accion": "HOLD",
+            "precio_stop_loss": 0.0,
+            "precio_take_profit": 0.0,
+            "justificacion": "HOLD forzado por caída severa del LLM (Rate Limit/503).",
+            "intentos_revision": intentos,
+        }
 
 def ejecutor(state: MyState, config: Optional[RunnableConfig] = None):
     logger.info(f"Ejecutor procesando orden para {state['ticker']}...")
