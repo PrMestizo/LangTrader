@@ -12,6 +12,8 @@ from alpaca.trading.requests import GetOrdersRequest, LimitOrderRequest, MarketO
 from alpaca.trading.enums import OrderSide, TimeInForce, OrderClass, QueryOrderStatus
 from dotenv import load_dotenv
 
+from langtrader.logger import logger
+
 load_dotenv()
 ALPACA_API_KEY = os.getenv("ALPACA_API_KEY")
 ALPACA_SECRET_KEY = os.getenv("ALPACA_SECRET_KEY")
@@ -103,12 +105,12 @@ def ejecutar_orden_mercado(
         # --- Obtención de Precio y Position Sizing ---
         if stop_loss > 0:
             cantidad, precio_actual, equity = _calcular_position_size(ticker, stop_loss, riesgo_porcentaje)
-            print(f"   📊 Position Sizing: Equity=${equity:,.2f} | Precio={precio_actual:.2f} | "
-                  f"Riesgo/acc=${abs(precio_actual - stop_loss):.2f} | Cantidad={cantidad} acc.")
+            logger.info(f"Position Sizing: Equity=${equity:,.2f} | Precio={precio_actual:.2f} | "
+                        f"Riesgo/acc=${abs(precio_actual - stop_loss):.2f} | Cantidad={cantidad} acc.")
         else:
             cantidad = 1  # Fallback si no hay SL
             precio_actual = _obtener_precio_actual(ticker)
-            print(f"   ⚠️ Sin Stop-Loss definido. Usando cantidad fija: {cantidad} | Precio={precio_actual:.2f}")
+            logger.info(f"Sin Stop-Loss definido para {ticker}. Usando cantidad fija: {cantidad} | Precio={precio_actual:.2f}")
 
         # --- Cálculo del Limit Price (Protección contra Slippage del 0.5%) ---
         if side == OrderSide.BUY:
@@ -143,8 +145,10 @@ def ejecutar_orden_mercado(
         msg = f"Orden {accion} ejecutada para {cantidad} acc. de {ticker}. Status: {orden.status}"
         if stop_loss > 0 and take_profit > 0:
             msg += f" | Bracket: SL={stop_loss:.2f}, TP={take_profit:.2f}"
+        logger.info(msg)
         return msg
     except Exception as e:
+        logger.error(f"Fallo al ejecutar orden {accion} en {ticker}: {e}")
         return f"Fallo al ejecutar orden {accion} en {ticker}: {str(e)}"
 
 @tool
@@ -169,6 +173,7 @@ def buscar_sentimiento_social(ticker: str) -> str:
         
         return f"Titulares recientes relacionados con {ticker}: {titulares_str}."
     except Exception as e:
+        logger.error(f"Error obteniendo resúmenes recientes de {ticker}: {e}")
         return f"Error obteniendo resúmenes recientes de {ticker}: {str(e)}"
 
 @tool
@@ -209,6 +214,7 @@ def analizar_grafica_1m(ticker: str) -> str:
                    f"Máximo del intradía reciente: {df['high'].max():.2f}, Mínimo: {df['low'].min():.2f}.")
         return resumen
     except Exception as e:
+         logger.error(f"Error obteniendo gráficas de Alpaca para {ticker}: {e}")
          return f"Error obteniendo gráficas de Alpaca para {ticker}: {str(e)}"
 
 @tool
@@ -227,4 +233,5 @@ def evaluar_dependencia_fundamental(ticker: str, contexto: str) -> str:
                 f"Resumen de Negocio: {resumen_negocio}\n"
                 f"Contexto del evento: {contexto}. Considerar si afecta significativamente el core business.")
     except Exception as e:
+        logger.error(f"Error obteniendo fundamentales de {ticker}: {e}")
         return f"Error obteniendo fundamentales de {ticker}: {str(e)}"

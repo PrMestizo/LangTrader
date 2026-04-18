@@ -7,6 +7,8 @@ from langgraph.graph import StateGraph, START, END
 from pydantic import BaseModel, Field
 from dotenv import load_dotenv
 
+from langtrader.logger import logger
+
 load_dotenv()
 
 # ============================================================
@@ -82,7 +84,7 @@ llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
 # 3. Los Nodos (Los Agentes)
 # ============================================================
 def analista_sentimiento(state: MyState, config: Optional[RunnableConfig] = None):
-    print(f"🌍 Sentimiento buscando reacciones sociales para {state['ticker']}...")
+    logger.info(f"Sentimiento buscando reacciones sociales para {state['ticker']}...")
     prompt = ChatPromptTemplate.from_messages([
         ("system", "Eres un analista de sentimiento de mercado. Usa tus herramientas para evaluar la reacción social minorista."),
         ("human", "Ticker: {ticker}\nNoticia: {noticia}")
@@ -93,7 +95,7 @@ def analista_sentimiento(state: MyState, config: Optional[RunnableConfig] = None
     return {"analisis_sentimiento": respuesta.content}
 
 def analista_tecnico(state: MyState, config: Optional[RunnableConfig] = None):
-    print(f"📈 Técnico analizando volumen y gráficas de {state['ticker']}...")
+    logger.info(f"Técnico analizando volumen y gráficas de {state['ticker']}...")
     prompt = ChatPromptTemplate.from_messages([
         ("system", "Eres un analista técnico cuantitativo. Revisa la acción del precio a muy corto plazo (1 minuto)."),
         ("human", "Ticker: {ticker}\nNoticia: {noticia}")
@@ -103,7 +105,7 @@ def analista_tecnico(state: MyState, config: Optional[RunnableConfig] = None):
     return {"analisis_tecnico": respuesta.content}
 
 def analista_fundamental(state: MyState, config: Optional[RunnableConfig] = None):
-    print(f"🏢 Fundamental evaluando el impacto real en {state['ticker']}...")
+    logger.info(f"Fundamental evaluando el impacto real en {state['ticker']}...")
     prompt = ChatPromptTemplate.from_messages([
         ("system", "Eres un analista fundamental implacable. Tu objetivo es ver si la noticia destruye el valor de la empresa o es solo ruido."),
         ("human", "Ticker: {ticker}\nNoticia: {noticia}")
@@ -116,7 +118,7 @@ MAX_INTENTOS_REVISION = 2
 
 def moderador(state: MyState, config: Optional[RunnableConfig] = None):
     intentos = state.get('intentos_revision', 0) + 1
-    print(f"⚖️ Moderador sintetizando datos para {state['ticker']}... (intento {intentos})")
+    logger.info(f"Moderador sintetizando datos para {state['ticker']}... (intento {intentos})")
     prompt = ChatPromptTemplate.from_messages([
         ("system", """Eres un gestor de riesgos cuantitativo de élite. Tu trabajo es sintetizar los reportes de tu equipo de analistas y tomar una decisión de trading estructurada.
 
@@ -143,8 +145,8 @@ Sentimiento Social: {analisis_sentimiento}""")
     agente_estructurado = prompt | llm.with_structured_output(DecisionModerador)
     orden = agente_estructurado.invoke(state)
 
-    print(f"   -> Decisión: {orden.decision_accion} | SL: {orden.precio_stop_loss} | TP: {orden.precio_take_profit}")
-    print(f"   -> Justificación: {orden.justificacion}")
+    logger.info(f"Decisión: {orden.decision_accion} | SL: {orden.precio_stop_loss} | TP: {orden.precio_take_profit}")
+    logger.info(f"Justificación: {orden.justificacion}")
 
     return {
         "decision_accion": orden.decision_accion,
@@ -155,12 +157,11 @@ Sentimiento Social: {analisis_sentimiento}""")
     }
 
 def ejecutor(state: MyState, config: Optional[RunnableConfig] = None):
-    print(f"🚀 Ejecutor procesando orden para {state['ticker']}...")
+    logger.info(f"Ejecutor procesando orden para {state['ticker']}...")
     accion = state["decision_accion"].upper()
     
     if accion == "BUY":
-        print(f"🛒 Ejecutando orden de COMPRA para {state['ticker']}...")
-        print(f"   SL: {state['precio_stop_loss']} | TP: {state['precio_take_profit']}")
+        logger.info(f"Ejecutando orden de COMPRA para {state['ticker']}... SL: {state['precio_stop_loss']} | TP: {state['precio_take_profit']}")
         resultado = ejecutar_orden_mercado.invoke({
             "ticker": state["ticker"],
             "accion": "BUY",
@@ -168,8 +169,7 @@ def ejecutor(state: MyState, config: Optional[RunnableConfig] = None):
             "take_profit": state["precio_take_profit"]
         })
     elif accion == "SELL":
-        print(f"💸 Ejecutando orden de VENTA para {state['ticker']}...")
-        print(f"   SL: {state['precio_stop_loss']} | TP: {state['precio_take_profit']}")
+        logger.info(f"Ejecutando orden de VENTA para {state['ticker']}... SL: {state['precio_stop_loss']} | TP: {state['precio_take_profit']}")
         resultado = ejecutar_orden_mercado.invoke({
             "ticker": state["ticker"],
             "accion": "SELL",
@@ -177,7 +177,7 @@ def ejecutor(state: MyState, config: Optional[RunnableConfig] = None):
             "take_profit": state["precio_take_profit"]
         })
     else:
-        print(f"⏸️ Ninguna orden ejecutada. (Decisión: {accion})")
+        logger.info(f"Ninguna orden ejecutada. (Decisión: {accion})")
         resultado = f"Mantenido ({accion}). Ninguna orden ejecutada hacia la API."
         
     return {"accion_ejecutada": resultado}
@@ -191,13 +191,13 @@ def router_moderador(state: MyState):
 
     if accion == "REVISAR":
         if intentos >= MAX_INTENTOS_REVISION:
-            print(f"🛑 Circuit Breaker: {intentos} revisiones alcanzadas. Forzando HOLD para proteger capital.")
+            logger.warning(f"Circuit Breaker: {intentos} revisiones alcanzadas. Forzando HOLD para proteger capital.")
             state["decision_accion"] = "HOLD"
             state["precio_stop_loss"] = 0.0
             state["precio_take_profit"] = 0.0
             state["justificacion"] = f"HOLD forzado por circuit breaker tras {intentos} revisiones sin resolución."
             return ["Ejecutor"]
-        print(f"🔄 El Moderador ha solicitado REVISIÓN ({intentos}/{MAX_INTENTOS_REVISION}). Volviendo a los Analistas...")
+        logger.info(f"El Moderador ha solicitado REVISIÓN ({intentos}/{MAX_INTENTOS_REVISION}). Volviendo a los Analistas...")
         return ["Analista_Tecnico", "Analista_Fundamental", "Analista_Sentimiento"]
     return ["Ejecutor"]
 
