@@ -42,6 +42,7 @@ def _calcular_position_size(ticker: str, stop_loss: float, riesgo_porcentaje: fl
     Retorna (cantidad, precio_actual, equity)."""
     account = trading_client.get_account()
     equity = float(account.equity)
+    buying_power = float(account.buying_power)
     precio_actual = _obtener_precio_actual(ticker)
     
     capital_en_riesgo = equity * (riesgo_porcentaje / 100.0)
@@ -50,8 +51,13 @@ def _calcular_position_size(ticker: str, stop_loss: float, riesgo_porcentaje: fl
     if riesgo_por_accion <= 0:
         raise ValueError(f"Riesgo por acción inválido: precio={precio_actual}, SL={stop_loss}")
     
-    cantidad = math.floor(capital_en_riesgo / riesgo_por_accion)
-    cantidad = max(cantidad, 1)  # Mínimo 1 acción
+    cantidad_por_riesgo = math.floor(capital_en_riesgo / riesgo_por_accion)
+    cantidad_maxima_comprable = math.floor(buying_power / precio_actual)
+    
+    cantidad = min(cantidad_por_riesgo, cantidad_maxima_comprable)
+    
+    if cantidad <= 0:
+        raise ValueError(f"Fondos insuficientes: no hay buying power para comprar 1 acción de {ticker}. Buying Power={buying_power}")
     
     return cantidad, precio_actual, equity
 
