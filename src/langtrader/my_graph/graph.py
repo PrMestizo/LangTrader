@@ -12,8 +12,8 @@ from langtrader.logger import logger
 
 load_dotenv()
 
-MAX_INTENTOS_REVISION = int(os.getenv("MAX_INTENTOS_REVISION", "2"))
-LLM_MODEL = os.getenv("LLM_MODEL", "gpt-4o-mini")
+MAX_INTENTOS_REVISION = int(os.getenv("MAX_INTENTOS_REVISION"))
+LLM_MODEL = os.getenv("LLM_MODEL")
 
 # ============================================================
 # 1. El Estado Compartido (La Pizarra)

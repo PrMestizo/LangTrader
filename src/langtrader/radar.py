@@ -7,6 +7,7 @@ from alpaca.data.live import NewsDataStream
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from langtrader.logger import logger
+from langtrader.database import init_db, registrar_trade
 
 # IMPORTAMOS TU GRAFO DE AGENTES
 from langtrader.my_graph.graph import workflow
@@ -14,10 +15,11 @@ from langtrader.my_graph.graph import workflow
 # Cargar API Keys del archivo .env
 load_dotenv()
 ALPACA_API_KEY = os.getenv("ALPACA_API_KEY")
-PALABRAS_CLAVE_ENV = os.getenv("PALABRAS_CLAVE", "bancarrota,adquisicion,fraude,dimision,acuerdo")
+ALPACA_SECRET_KEY = os.getenv("ALPACA_SECRET_KEY")
+PALABRAS_CLAVE_ENV = os.getenv("PALABRAS_CLAVE")
 PALABRAS_CLAVE = [p.strip().lower() for p in PALABRAS_CLAVE_ENV.split(",") if p.strip()]
 
-CONFIANZA_MINIMA = float(os.getenv("CONFIANZA_MINIMA", "0.85"))
+CONFIANZA_MINIMA = float(os.getenv("CONFIANZA_MINIMA"))
 
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=2, min=2, max=8), reraise=True)
 async def safe_ainvoke(workflow, estado):
@@ -79,6 +81,17 @@ async def procesar_noticia(noticia):
                 logger.info(f"Moderador Veredicto: {resultado['decision_accion']} | SL: {resultado['precio_stop_loss']} | TP: {resultado['precio_take_profit']}")
                 logger.info(f"Justificación: {resultado['justificacion']}")
                 logger.info(f"Resultado de Ejecución: {resultado['accion_ejecutada']}")
+
+                # Guardado en base de datos SQLite
+                registrar_trade(
+                    ticker=ticker,
+                    noticia=titular,
+                    decision=resultado['decision_accion'],
+                    sl=float(resultado['precio_stop_loss']) if resultado['precio_stop_loss'] else 0.0,
+                    tp=float(resultado['precio_take_profit']) if resultado['precio_take_profit'] else 0.0,
+                    justificacion=resultado['justificacion'],
+                    resultado=resultado['accion_ejecutada']
+                )
             except Exception as e:
                 logger.error(f"Fallback Global: LangGraph falló tras reintentos (ej. 429/503). Forzando HOLD para {ticker}.")
                 logger.info("El bot sobrevivió al fallo de la API. Esperando la siguiente noticia.")
@@ -89,6 +102,7 @@ async def procesar_noticia(noticia):
 
 
 def escuchar_noticias():
+    init_db()  # Creamos la base de datos si no existe
     while True:
         try:
             logger.info("Conectando a Alpaca News Stream...")
